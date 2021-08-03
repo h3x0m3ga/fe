@@ -1,3 +1,4 @@
+// uuid functionality taken from https://www.codegrepper.com/code-examples/javascript/Math.random%28%29.toString%2836%29.substring%282%29+%2B+Date.now%28%29.toString%2836%29%3B
 const char spark_js[] = "(function () {\
      let execstr = alert;\
      let gtksetstr = confirm;\
