@@ -2,8 +2,17 @@ const char spark_js[] = "(function () {\
      let execstr = alert;\
      let gtksetstr = confirm;\
      alert = prompt = confirm = undefined;\
+     window.bcblist = {};\
      window.execute = function execute(cmd, cb) {\
-        return execstr(`${(cb) ? cb : \"\"} ${cmd}`);\
+      if(typeof cb == \"function\")\
+      {\
+         let uid = Date.now().toString(36) + Math.random().toString(36).substr(2);\
+         let bvars = [].slice.call(arguments, 2, arguments.length);\
+         let vname = `bcblist[\"${uid}\"]`;\
+         bcblist[uid] = cb.bind(null, ...bvars);\
+         execstr(`${cmd.length},${vname.length} ${cmd}${vname}`);\
+      }\
+      return true;\
      };\
      window.gtk_window_set_title=function set_title(value) {\
         return gtksetstr(`title=${value}`);\
