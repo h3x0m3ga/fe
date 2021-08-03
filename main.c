@@ -65,7 +65,10 @@ void *execute(void *aer)
         if (strlen(((async_exec *)aer)->cb) > 1)
         {
             gchar *script;
-            script = g_strdup_printf("%s(`%s`)", ((async_exec *)aer)->cb, (output) ? output : "");
+            script = g_strdup_printf("%s(`%s`);\ndelete %s;", ((async_exec *)aer)->cb, output, ((async_exec *)aer)->cb);
+            if(verbose) {
+                printf("SCRIPT:\n%s\n", script);
+            }
             webkit_web_view_run_javascript(((async_exec *)aer)->web_view, script, NULL, NULL, NULL);
             g_free(script);
         }
@@ -84,23 +87,38 @@ gboolean view_context_menu(WebKitWebView *web_view, WebKitContextMenu *context_m
 
 gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer user_data)
 {
-    const char *cb;
-    char *cmd;
-    cb = webkit_script_dialog_get_message(dialog);
-    cmd = strchr(cb, ' ');
-    *cmd = 0;
-    cmd++;
+    const char *uddta;
+    char *p;
+    int cblen, cmdlen;
+    uddta = webkit_script_dialog_get_message(dialog);
+    p = strchr(uddta, ',');
+    if(!p) {
+        return true;
+    }
+    p++;
+    cmdlen = atoi(uddta);
+    cblen = atoi(p);
+    p = strchr(p, ' ');
+    if(!p) {
+        return true;
+    }
+    p++;
     async_exec *req = (async_exec *)malloc(sizeof(async_exec));
     if (req == 0)
-        return false;
-    req->cb = (char *)malloc(strlen(cb) + 1);
-    if (req->cb == 0)
-        return false;
-    strcpy(req->cb, cb);
-    req->cmd = (char *)malloc(strlen(cmd) + 1);
-    if (req->cmd == 0)
-        return false;
-    strcpy(req->cmd, cmd);
+        return true;
+    req->cmd = (char *)malloc(cmdlen + 1);
+    if (req->cmd == 0) {
+        return true;
+    }
+    req->cmd[cmdlen] = 0;
+    strncpy(req->cmd, p, cmdlen);
+
+    req->cb = (char *)malloc(cblen + 1);
+    if (req->cb == 0) {
+        return true;
+    }
+    req->cb[cblen] = 0;
+    strncpy(req->cb, p + cmdlen, cblen);
     req->web_view = web_view;
     if (verbose)
     {
@@ -185,9 +203,15 @@ gboolean gtkreq_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
                 height = atoi(sheight);
                 if (width && height)
                 {
+                    gtk_window_set_default_size(GTK_WINDOW(window), width, height);
                     gtk_window_resize(GTK_WINDOW(window), width, height);
+                } else if(verbose) {
+                    fprintf(stderr, "bad length values");
                 }
+            } else if(verbose) {
+                fprintf(stderr, "bad string length");
             }
+            return true;
         }
     }
     return true;
@@ -199,8 +223,10 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
     {
     case WEBKIT_SCRIPT_DIALOG_ALERT:
         return execute_mon(web_view, dialog, user_data);
+        break;
     case WEBKIT_SCRIPT_DIALOG_CONFIRM:
         return gtkreq_mon(web_view, dialog, user_data);
+        break;
     case WEBKIT_SCRIPT_DIALOG_PROMPT:
         break;
     case WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM:
@@ -297,7 +323,7 @@ int main(int argc, char *argv[], char *env[])
     }
     webkit_user_content_manager_add_script(manager, script);
     gtk_builder_connect_signals(builder, widgets);
-    webkit_web_view_load_html(WEBKIT_WEB_VIEW(widgets->w_webkit_webview), html, "/");
+    webkit_web_view_load_html(WEBKIT_WEB_VIEW(widgets->w_webkit_webview), html, "file:///");
     if (debug)
     {
         dev = webkit_web_view_get_inspector(WEBKIT_WEB_VIEW(widgets->w_webkit_webview));
