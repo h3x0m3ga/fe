@@ -7,6 +7,7 @@
 #include "sparkjs.h"
 #include "ui.h"
 
+
 GtkWidget *window;
 bool inhibited = false;
 bool verbose = false;
@@ -18,64 +19,81 @@ typedef struct
     char *cmd;
     char *cb;
     WebKitWebView *web_view;
-} async_exec;
+} asynchronous_execution_request;
 
 typedef struct
 {
     GtkWidget *w_webkit_webview;
 } app_widgets;
 
+
+char *read_file_until_end(FILE *fp)
+{
+    char *rcvd, *output, tmp[BSIZE];
+    size_t len = 1, rlen = 0;
+    output = (char *)malloc(1);
+    *output = 0;
+    if (!output)
+    {
+        if (verbose)
+        {
+            fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
+        }
+        exit(1);
+    }
+    rcvd = fgets(tmp, BSIZE, fp);
+    while (rcvd)
+    {
+        rlen = strlen(rcvd) + 1;
+        if(verbose) {
+            fprintf(stderr, "\nREALLOC:\nlen: %lu, rlen: %lu\n", len, rlen);
+        }
+        output = (char *)realloc(output, len + rlen);
+        if (!output)
+        {
+            fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
+            exit(1);
+        }
+        strcat(output, rcvd);
+        len += rlen;
+        rcvd = fgets(tmp, BSIZE, fp);
+    }
+    fclose(fp);
+    return output;
+}
+
 void on_quit()
 {
     gtk_main_quit();
 }
 
-void *execute(void *aer)
+void *execute(void *asynch_exec_req)
 {
     FILE *fp;
-    char *rcvd, *output, tmp[BSIZE];
-    int len = 0;
-    fp = popen(((async_exec *)aer)->cmd, "r");
+    char *output;
+    fp = popen(((asynchronous_execution_request *)asynch_exec_req)->cmd, "r");
     if (!fp || fp < 0)
     {
-        fprintf(stderr, "Error executing '%s' error no: %d\n", ((async_exec *)aer)->cmd, errno);
+        fprintf(stderr, "Error executing '%s' error no: %d\n", ((asynchronous_execution_request *)asynch_exec_req)->cmd, errno);
     }
     else
     {
-        output = (char *)malloc(1);
-        *output = 0;
-        rcvd = fgets(tmp, BSIZE, fp);
-        while (rcvd)
-        {
-            int rlen = strlen(rcvd);
-            output = (char *)realloc(output, len + rlen + 1);
-            output[len + rlen] = 0;
-            if (output)
-            {
-                strcat(output, rcvd);
-                len += rlen;
-            }
-            else
-            {
-                fprintf(stderr, "Memory Allocation Error...\n");
-            }
-            rcvd = fgets(tmp, BSIZE, fp);
-        }
-        pclose(fp);
-        if (strlen(((async_exec *)aer)->cb) > 1)
+        output = read_file_until_end(fp);
+        if (strlen(((asynchronous_execution_request *)asynch_exec_req)->cb) > 1)
         {
             gchar *script;
-            script = g_strdup_printf("%s(`%s`);\ndelete %s;", ((async_exec *)aer)->cb, output, ((async_exec *)aer)->cb);
-            if(verbose) {
-                printf("SCRIPT:\n%s\n", script);
+            script = g_strdup_printf("%s(`%s`);\ndelete %s;", ((asynchronous_execution_request *)asynch_exec_req)->cb, output, ((asynchronous_execution_request *)asynch_exec_req)->cb);
+            if (verbose)
+            {
+                fprintf(stderr,"SCRIPT:\n%s\n", script);
             }
-            webkit_web_view_run_javascript(((async_exec *)aer)->web_view, script, NULL, NULL, NULL);
+            webkit_web_view_run_javascript(((asynchronous_execution_request *)asynch_exec_req)->web_view, script, NULL, NULL, NULL);
             g_free(script);
         }
         free(output);
-        free(((async_exec *)aer)->cb);
-        free(((async_exec *)aer)->cmd);
-        free(((async_exec *)aer));
+        free(((asynchronous_execution_request *)asynch_exec_req)->cb);
+        free(((asynchronous_execution_request *)asynch_exec_req)->cmd);
+        free(((asynchronous_execution_request *)asynch_exec_req));
     }
     return 0;
 }
@@ -92,29 +110,33 @@ gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpoint
     int cblen, cmdlen;
     uddta = webkit_script_dialog_get_message(dialog);
     p = strchr(uddta, ',');
-    if(!p) {
+    if (!p)
+    {
         return true;
     }
     p++;
     cmdlen = atoi(uddta);
     cblen = atoi(p);
     p = strchr(p, ' ');
-    if(!p) {
+    if (!p)
+    {
         return true;
     }
     p++;
-    async_exec *req = (async_exec *)malloc(sizeof(async_exec));
+    asynchronous_execution_request *req = (asynchronous_execution_request *)malloc(sizeof(asynchronous_execution_request));
     if (req == 0)
         return true;
     req->cmd = (char *)malloc(cmdlen + 1);
-    if (req->cmd == 0) {
+    if (req->cmd == 0)
+    {
         return true;
     }
     req->cmd[cmdlen] = 0;
     strncpy(req->cmd, p, cmdlen);
 
     req->cb = (char *)malloc(cblen + 1);
-    if (req->cb == 0) {
+    if (req->cb == 0)
+    {
         return true;
     }
     req->cb[cblen] = 0;
@@ -170,23 +192,24 @@ gboolean gtkreq_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
             gtk_window_unmaximize(GTK_WINDOW(window));
             return true;
         }
-        if(!strcmp("fullscreen", param))
+        if (!strcmp("fullscreen", param))
         {
-            gtk_window_fullscreen (GTK_WINDOW(window));
+            gtk_window_fullscreen(GTK_WINDOW(window));
             return true;
         }
-        if(!strcmp("unfullscreen", param))
+        if (!strcmp("unfullscreen", param))
         {
-            gtk_window_unfullscreen (GTK_WINDOW(window));
+            gtk_window_unfullscreen(GTK_WINDOW(window));
             return true;
         }
-        if(!strcmp("resizable", param))
+        if (!strcmp("resizable", param))
         {
-            if(!strcmp("true", val)) {
-                gtk_window_set_resizable(GTK_WINDOW(window),true);
+            if (!strcmp("true", val))
+            {
+                gtk_window_set_resizable(GTK_WINDOW(window), true);
                 return true;
-            } 
-            gtk_window_set_resizable(GTK_WINDOW(window),false);
+            }
+            gtk_window_set_resizable(GTK_WINDOW(window), false);
             return true;
         }
         if (!strcmp("resize", param))
@@ -205,11 +228,15 @@ gboolean gtkreq_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
                 {
                     gtk_window_set_default_size(GTK_WINDOW(window), width, height);
                     gtk_window_resize(GTK_WINDOW(window), width, height);
-                } else if(verbose) {
-                    fprintf(stderr, "bad length values");
                 }
-            } else if(verbose) {
-                fprintf(stderr, "bad string length");
+                else if (verbose)
+                {
+                    fprintf(stderr, "GTKWindow Resize: bad length values\n");
+                }
+            }
+            else if (verbose)
+            {
+                fprintf(stderr, "GTKWindow Resize: bad string length\n");
             }
             return true;
         }
@@ -237,10 +264,9 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
 
 int main(int argc, char *argv[], char *env[])
 {
+
     int opt;
-    FILE *fp;
-    char *filename = 0;
-    while ((opt = getopt(argc, argv, ":div?f:")) != -1)
+    while ((opt = getopt(argc, argv, ":div?")) != -1)
     {
         switch (opt)
         {
@@ -257,47 +283,9 @@ int main(int argc, char *argv[], char *env[])
             fprintf(stdout, "FrontEnd\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-v be verbose\n-f <filename>\n-? show help\n");
             exit(0);
             break;
-        case 'f':
-            filename = optarg;
-            break;
         }
     }
-    if (filename)
-    {
-        fp = fopen(filename, "r");
-        if (!fp)
-        {
-            fprintf(stderr, "Error: File \"%s\" Does Not Exist!\n", filename);
-            exit(1);
-        }
-    }
-    else
-    {
-        fp = stdin;
-    }
-    char *rcvd, *html, tmp[BSIZE];
-    int len = 0;
-    html = (char *)malloc(1);
-    *html = 0;
-    rcvd = fgets(tmp, BSIZE, fp);
-    while (rcvd)
-    {
-        int rlen = strlen(rcvd);
-        html = (char *)realloc(html, len + rlen + 1);
-        html[len + rlen] = 0;
-        if (html)
-        {
-            strcat(html, rcvd);
-            len += rlen;
-        }
-        else
-        {
-            fprintf(stderr, "Memory Allocation Error...\n");
-            exit(1);
-        }
-        rcvd = fgets(tmp, BSIZE, fp);
-    }
-    fclose(fp);
+    char *html = read_file_until_end(stdin);
     GtkBuilder *builder;
     WebKitUserContentManager *manager;
     WebKitWebInspector *dev;
