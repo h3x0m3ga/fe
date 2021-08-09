@@ -27,6 +27,7 @@ const char gladeui[] =
     <property name=\"can_focus\">False</property>\
     <property name=\"title\" translatable=\"yes\"></property>\
     <property name=\"window_position\">center</property>\
+    <property name=\"type_hint\">normal</property>\
     <property name=\"default_width\">850</property>\
     <property name=\"default_height\">550</property>\
     <property name=\"has_resize_grip\">True</property>\
