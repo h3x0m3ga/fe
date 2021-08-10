@@ -12,6 +12,8 @@ const char spark_js[] = "(function () {\
          let vname = `bcblist[\"${uid}\"]`;\
          bcblist[uid] = cb.bind(null, ...bvars);\
          execstr(`${cmd.length},${vname.length} ${cmd}${vname}`);\
+      } else {\
+         execstr(`${cmd.length},0 ${cmd}`);\
       }\
       return true;\
      };\
