@@ -58,7 +58,6 @@ char *read_file_until_end(FILE *fp)
         len += rlen;
         rcvd = fgets(tmp, BSIZE, fp);
     }
-    fclose(fp);
     return output;
 }
 
@@ -71,6 +70,7 @@ void *execute(void *asynch_exec_req)
 {
     FILE *fp;
     char *output;
+    unsigned int return_value;
     fp = popen(((asynchronous_execution_request *)asynch_exec_req)->cmd, "r");
     if (!fp || fp < 0)
     {
@@ -79,10 +79,11 @@ void *execute(void *asynch_exec_req)
     else
     {
         output = read_file_until_end(fp);
+        return_value = pclose(fp);
         if (strlen(((asynchronous_execution_request *)asynch_exec_req)->cb) > 1)
         {
             gchar *script;
-            script = g_strdup_printf("%s(`%s`);\ndelete %s;", ((asynchronous_execution_request *)asynch_exec_req)->cb, output, ((asynchronous_execution_request *)asynch_exec_req)->cb);
+            script = g_strdup_printf("%s(%d, `%s`);\ndelete %s;", ((asynchronous_execution_request *)asynch_exec_req)->cb, return_value, output, ((asynchronous_execution_request *)asynch_exec_req)->cb);
             if (verbose)
             {
                 fprintf(stderr,"SCRIPT:\n%s\n", script);
@@ -106,23 +107,20 @@ gboolean view_context_menu(WebKitWebView *web_view, WebKitContextMenu *context_m
 gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer user_data)
 {
     const char *uddta;
-    char *p;
+    char *ptr;
     int cblen, cmdlen;
     uddta = webkit_script_dialog_get_message(dialog);
-    p = strchr(uddta, ',');
-    if (!p)
-    {
+    ptr = strchr(uddta,' ');
+    if(!ptr) {
+        return 1;
+    }
+    ptr++;
+    if(sscanf(uddta, "%u,%u", &cmdlen, &cblen) != 2) {
+        if(verbose) {
+            fprintf(stderr, "Parsing Error: incorrect arguments: %s", uddta);
+        }
         return true;
     }
-    p++;
-    cmdlen = atoi(uddta);
-    cblen = atoi(p);
-    p = strchr(p, ' ');
-    if (!p)
-    {
-        return true;
-    }
-    p++;
     asynchronous_execution_request *req = (asynchronous_execution_request *)malloc(sizeof(asynchronous_execution_request));
     if (req == 0)
         return true;
@@ -132,7 +130,7 @@ gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpoint
         return true;
     }
     req->cmd[cmdlen] = 0;
-    strncpy(req->cmd, p, cmdlen);
+    strncpy(req->cmd, ptr, cmdlen);
 
     req->cb = (char *)malloc(cblen + 1);
     if (req->cb == 0)
@@ -140,7 +138,7 @@ gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpoint
         return true;
     }
     req->cb[cblen] = 0;
-    strncpy(req->cb, p + cmdlen, cblen);
+    strncpy(req->cb, ptr + cmdlen, cblen);
     req->web_view = web_view;
     if (verbose)
     {
@@ -280,7 +278,7 @@ int main(int argc, char *argv[], char *env[])
             verbose = true;
             break;
         case '?':
-            fprintf(stdout, "FrontEnd\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-v be verbose\n-f <filename>\n-? show help\n");
+            fprintf(stdout, "FrontEnd\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-v be verbose\n-? show help\n");
             exit(0);
             break;
         }
