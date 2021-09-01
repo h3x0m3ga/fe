@@ -1,9 +1,18 @@
-// uuid functionality taken from https://www.codegrepper.com/code-examples/javascript/Math.random%28%29.toString%2836%29.substring%282%29+%2B+Date.now%28%29.toString%2836%29%3B
+#ifndef __FE_JS_API__
+#define __FE_JS_API__
+
 const char spark_js[] = "(function () {\
      let execstr = alert;\
      let gtksetstr = confirm;\
+     let savetofile = prompt;\
      alert = prompt = confirm = undefined;\
      window.bcblist = {};\
+     window.save_to_file = function save_to_file(fn, atad) {\
+      if(typeof fn == \"string\" && fn.length > 0) {\
+         savetofile(`${fn}=${atad}`);\
+      }\
+      return true;\
+     };\
      window.execute = function execute(cmd, cb) {\
       if(typeof cb == \"function\")\
       {\
@@ -42,4 +51,4 @@ const char spark_js[] = "(function () {\
         return gtksetstr(`icon=${value}`);\
      };\
      })();";
-     
+#endif
