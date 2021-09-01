@@ -61,6 +61,30 @@ char *read_file_until_end(FILE *fp)
     return output;
 }
 
+int save_to_file(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer user_data)
+{
+    char *data;
+    const char *fn;
+    fn = webkit_script_dialog_get_message(dialog);
+    data = strchr(fn, '=');
+    *data = 0;
+    data++;
+    if (!(strlen(fn) == 0 || strlen(data) == 0))
+    {
+        FILE *fp;
+        fp = fopen(fn, "w");
+        if(!fp) {
+            if(verbose) {
+                fprintf(stderr, "\nError opening %s\n", fn);
+            }
+            return 1;
+        }
+        fprintf(fp,"%s", data);
+        fclose(fp);
+    }
+    return true;
+}
+
 void on_quit()
 {
     gtk_main_quit();
@@ -253,6 +277,7 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
         return gtkreq_mon(web_view, dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_PROMPT:
+        return save_to_file(web_view, dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM:
         break;
@@ -278,7 +303,7 @@ int main(int argc, char *argv[], char *env[])
             verbose = true;
             break;
         case '?':
-            fprintf(stdout, "FrontEnd\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-v be verbose\n-? show help\n");
+            fprintf(stdout, "fe\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-v be verbose\n-? show help\n");
             exit(0);
             break;
         }
