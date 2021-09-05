@@ -39,24 +39,28 @@ char *read_file_until_end(FILE *fp)
         {
             fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
         }
-        exit(1);
-    }
-    rcvd = fgets(tmp, BSIZE, fp);
-    while (rcvd)
+    } else
     {
-        rlen = strlen(rcvd) + 1;
-        if(verbose) {
-            fprintf(stderr, "\nREALLOC:\nlen: %lu, rlen: %lu\n", len, rlen);
-        }
-        output = (char *)realloc(output, len + rlen);
-        if (!output)
-        {
-            fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
-            exit(1);
-        }
-        strcat(output, rcvd);
-        len += rlen;
         rcvd = fgets(tmp, BSIZE, fp);
+        while (rcvd)
+        {
+            rlen = strlen(rcvd) + 1;
+            if(verbose) {
+                fprintf(stderr, "\nREALLOC:\nlen: %lu, rlen: %lu\n", len, rlen);
+            }
+            output = (char *)realloc(output, len + rlen);
+            if (!output)
+            {
+                if(verbose) {
+                    fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
+                }
+            } else
+            {
+                strcat(output, rcvd);
+                len += rlen;
+                rcvd = fgets(tmp, BSIZE, fp);
+            }
+        }
     }
     return output;
 }
