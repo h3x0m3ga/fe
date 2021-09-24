@@ -1,71 +1,52 @@
-#include <errno.h>
-#include <unistd.h>
-#include <ctype.h>
-#include <pthread.h>
-#include <gtk/gtk.h>
-#include <webkit2/webkit2.h>
-#include "sparkjs.h"
-#include "ui.h"
+#include "main.h"
 
+static pthread_mutex_t aerlist_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t js_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 GtkWidget *window;
 bool inhibited = false;
 bool verbose = false;
 bool debug = false;
+int NUM_OF_THREADS = 10;
 size_t BSIZE = 2048;
-
-typedef struct
-{
-    char *cmd;
-    char *cb;
-    WebKitWebView *web_view;
-} asynchronous_execution_request;
-
-typedef struct
-{
-    GtkWidget *w_webkit_webview;
-} app_widgets;
-
+AER *rootObject;
+pthread_t *wrkrthrd;
+WebKitWebView *web_view;
 
 char *read_file_until_end(FILE *fp)
 {
-    char *rcvd, *output, tmp[BSIZE];
-    size_t len = 1, rlen = 0;
-    output = (char *)malloc(1);
-    *output = 0;
+    char *output;
+    size_t len = 0, rlen = 0;
+    output = (char *)malloc(BSIZE);
     if (!output)
     {
-        if (verbose)
-        {
-            fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
-        }
-    } else
+        fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
+        return NULL;
+    }
+    else
     {
-        rcvd = fgets(tmp, BSIZE, fp);
-        while (rcvd)
+        rlen = fread(output + len, 1, BSIZE, fp);
+        while (rlen == BSIZE)
         {
-            rlen = strlen(rcvd) + 1;
-            if(verbose) {
-                fprintf(stderr, "\nREALLOC:\nlen: %lu, rlen: %lu\n", len, rlen);
+            len += rlen;
+            if (verbose)
+            {
+                fprintf(stderr, "REALLOC(len: %lu, rlen: %lu)\n", len, rlen);
             }
-            output = (char *)realloc(output, len + rlen);
+            output = (char *)realloc(output, len + BSIZE);
             if (!output)
             {
-                if(verbose) {
-                    fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
-                }
-            } else
-            {
-                strcat(output, rcvd);
-                len += rlen;
-                rcvd = fgets(tmp, BSIZE, fp);
+                fprintf(stderr, "\nMemory Allocation Error\n");
+                exit(1);
             }
+            rlen = fread(output + len, 1, BSIZE, fp);
         }
+        *(output + len + rlen + 1) = 0;
     }
     return output;
 }
 
-int save_to_file(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer user_data)
+int save_to_file(WebKitScriptDialog *dialog, gpointer user_data)
 {
     char *data;
     const char *fn;
@@ -77,13 +58,15 @@ int save_to_file(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer u
     {
         FILE *fp;
         fp = fopen(fn, "w");
-        if(!fp) {
-            if(verbose) {
+        if (!fp)
+        {
+            if (verbose)
+            {
                 fprintf(stderr, "\nError opening %s\n", fn);
             }
             return 1;
         }
-        fprintf(fp,"%s", data);
+        fputs(data, fp);
         fclose(fp);
     }
     return true;
@@ -91,38 +74,68 @@ int save_to_file(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer u
 
 void on_quit()
 {
+    pthread_mutex_destroy(&aerlist_mtx);
+    pthread_mutex_destroy(&js_mtx);
     gtk_main_quit();
 }
 
-void *execute(void *asynch_exec_req)
+void *execute()
 {
-    FILE *fp;
-    char *output;
-    unsigned int return_value;
-    fp = popen(((asynchronous_execution_request *)asynch_exec_req)->cmd, "r");
-    if (!fp || fp < 0)
+    while (!inhibited)
     {
-        fprintf(stderr, "Error executing '%s' error no: %d\n", ((asynchronous_execution_request *)asynch_exec_req)->cmd, errno);
-    }
-    else
-    {
-        output = read_file_until_end(fp);
-        return_value = pclose(fp);
-        if (strlen(((asynchronous_execution_request *)asynch_exec_req)->cb) > 1)
-        {
-            gchar *script;
-            script = g_strdup_printf("%s(%d, `%s`);\ndelete %s;", ((asynchronous_execution_request *)asynch_exec_req)->cb, return_value, output, ((asynchronous_execution_request *)asynch_exec_req)->cb);
-            if (verbose)
-            {
-                fprintf(stderr,"SCRIPT:\n%s\n", script);
-            }
-            webkit_web_view_run_javascript(((asynchronous_execution_request *)asynch_exec_req)->web_view, script, NULL, NULL, NULL);
-            g_free(script);
+        AER *aer1 = 0;
+        pthread_mutex_lock(&aerlist_mtx);
+        aer1 = rootObject->next;
+        if(aer1) {
+            rootObject->next = aer1->next;
         }
-        free(output);
-        free(((asynchronous_execution_request *)asynch_exec_req)->cb);
-        free(((asynchronous_execution_request *)asynch_exec_req)->cmd);
-        free(((asynchronous_execution_request *)asynch_exec_req));
+        pthread_mutex_unlock(&aerlist_mtx);
+        if (verbose)
+        {
+            if (aer1)
+            {
+                printf("THREAD: %ld\nCOMMAND: %s\nCALLBACK: %s\n", pthread_self(), aer1->cmd, aer1->cb);
+            }
+            else
+            {
+                continue;
+            }
+        }
+        FILE *fp;
+        char *output;
+        unsigned int return_value;
+        fp = popen(aer1->cmd, "r");
+        if (!fp || fp < 0)
+        {
+            fprintf(stderr, "Error executing '%s' error no: %d\n", aer1->cmd, errno);
+        }
+        else
+        {
+            output = read_file_until_end(fp);
+            return_value = pclose(fp);
+            if (strlen(aer1->cb))
+            {
+                gchar *script;
+                script = g_strdup_printf("%s(%d, `%s`);\ndelete %s;", aer1->cb, return_value, output, aer1->cb);
+                if (verbose)
+                {
+                    fprintf(stdout, "SCRIPT:\n%s\n", script);
+                }
+                if (aer1->cb)
+                {
+                    pthread_mutex_lock(&js_mtx);
+                    printf("js_mutex locked\n");
+                    webkit_web_view_run_javascript(web_view, script, NULL, NULL, NULL);
+                    pthread_mutex_unlock(&js_mtx);
+                    printf("js_mutex unlocked\n");
+                }
+                g_free(script);
+            }
+            free(output);
+            free(aer1->cmd);
+            free(aer1->cb);
+            free(aer1);
+        }
     }
     return 0;
 }
@@ -135,47 +148,43 @@ gboolean view_context_menu(WebKitWebView *web_view, WebKitContextMenu *context_m
 gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer user_data)
 {
     const char *uddta;
-    char *ptr;
+    char *ptr, *cmd, *cb;
     int cblen, cmdlen;
     uddta = webkit_script_dialog_get_message(dialog);
-    ptr = strchr(uddta,' ');
-    if(!ptr) {
+    ptr = strchr(uddta, ' ');
+    if (!ptr)
+    {
         return 1;
     }
     ptr++;
-    if(sscanf(uddta, "%u,%u", &cmdlen, &cblen) != 2) {
-        if(verbose) {
-            fprintf(stderr, "Parsing Error: incorrect arguments: %s", uddta);
+    if (sscanf(uddta, "%d,%d", &cmdlen, &cblen) != 2)
+    {
+        fprintf(stderr, "Parsing Error: incorrect arguments: %s", uddta);
+        return false;
+    }
+    cmd = (char *)malloc(cmdlen + 1);
+    cb = (char *)malloc(cblen + 1);
+    if (cmd && cb)
+    {
+        strncpy(cmd, ptr, cmdlen);
+        strncpy(cb, ptr + cmdlen, cblen);
+        cmd[cmdlen] = 0;
+        cb[cblen] = 0;
+        AER *req = (AER *)malloc(sizeof(AER));
+        req->cmd = cmd;
+        req->cb = cb;
+        req->next = 0;
+        if (!inhibited)
+        {
+            pthread_mutex_lock(&aerlist_mtx);
+            AER *tmp = rootObject;
+            while (tmp && tmp->next)
+            {
+                tmp = tmp->next;
+            }
+            tmp->next = req;
+            pthread_mutex_unlock(&aerlist_mtx);
         }
-        return true;
-    }
-    asynchronous_execution_request *req = (asynchronous_execution_request *)malloc(sizeof(asynchronous_execution_request));
-    if (req == 0)
-        return true;
-    req->cmd = (char *)malloc(cmdlen + 1);
-    if (req->cmd == 0)
-    {
-        return true;
-    }
-    req->cmd[cmdlen] = 0;
-    strncpy(req->cmd, ptr, cmdlen);
-
-    req->cb = (char *)malloc(cblen + 1);
-    if (req->cb == 0)
-    {
-        return true;
-    }
-    req->cb[cblen] = 0;
-    strncpy(req->cb, ptr + cmdlen, cblen);
-    req->web_view = web_view;
-    if (verbose)
-    {
-        fprintf(stdout, "COMMAND: %s\nCALLBACK: %s\nTHREAD ID: %ld\n", req->cmd, req->cb, pthread_self());
-    }
-    if (!inhibited)
-    {
-        pthread_t thread;
-        pthread_create(&thread, NULL, execute, (void *)req);
     }
     return true;
 }
@@ -281,7 +290,7 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
         return gtkreq_mon(web_view, dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_PROMPT:
-        return save_to_file(web_view, dialog, user_data);
+        return save_to_file(dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM:
         break;
@@ -312,8 +321,12 @@ int main(int argc, char *argv[], char *env[])
             break;
         }
     }
+    wrkrthrd = (pthread_t *)calloc(NUM_OF_THREADS, sizeof(pthread_t));
+    rootObject = (AER *)malloc(sizeof(AER));
+    memset(rootObject, 0, sizeof(AER));
     char *html = read_file_until_end(stdin);
     GtkBuilder *builder;
+    GtkWidget *w_webkit_webview;
     WebKitUserContentManager *manager;
     WebKitWebInspector *dev;
     WebKitUserScript *script;
@@ -324,30 +337,48 @@ int main(int argc, char *argv[], char *env[])
         WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
         NULL,
         NULL);
-    app_widgets *widgets = g_slice_new(app_widgets);
     gtk_init(&argc, &argv);
     webkit_web_view_get_type();
     webkit_settings_get_type();
     builder = gtk_builder_new_from_string((gchar *)gladeui, strlen(gladeui));
     window = GTK_WIDGET(gtk_builder_get_object(builder, "main_window"));
-    widgets->w_webkit_webview = GTK_WIDGET(gtk_builder_get_object(builder, "webkit_webview"));
-    manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(widgets->w_webkit_webview));
+    w_webkit_webview = GTK_WIDGET(gtk_builder_get_object(builder, "webkit_webview"));
+    web_view = WEBKIT_WEB_VIEW(w_webkit_webview);
+    manager = webkit_web_view_get_user_content_manager(web_view);
     if (!manager)
     {
         exit(1);
     }
     webkit_user_content_manager_add_script(manager, script);
-    gtk_builder_connect_signals(builder, widgets);
-    webkit_web_view_load_html(WEBKIT_WEB_VIEW(widgets->w_webkit_webview), html, "file:///");
+    gtk_builder_connect_signals(builder, w_webkit_webview);
+    webkit_web_view_load_html(web_view, html, "file:///");
     if (debug)
     {
-        dev = webkit_web_view_get_inspector(WEBKIT_WEB_VIEW(widgets->w_webkit_webview));
+        dev = webkit_web_view_get_inspector(web_view);
         webkit_web_inspector_show(dev);
+    }
+    for (int i = 0; i < NUM_OF_THREADS; i++)
+    {
+
+        switch (pthread_create(&wrkrthrd[i], NULL, execute, NULL))
+        {
+        case EAGAIN:
+            fprintf(stderr, "Insufficient resources to create another thread.\n");
+            break;
+        case EINVAL:
+            fprintf(stderr, "Invalid settings in thread attribute.\n");
+            break;
+        case EPERM:
+            fprintf(stderr, "No permission to set the scheduling policy and parameters specified in thread attribute.\n");
+            break;
+        default:
+            fprintf(stderr, "Thread Created\n");
+            break;
+        }
     }
     gtk_widget_show_all(window);
     gtk_main();
     g_object_unref(builder);
     webkit_user_script_unref(script);
-    g_slice_free(app_widgets, widgets);
     return 0;
 }
