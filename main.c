@@ -117,17 +117,20 @@ void *execute()
             {
                 gchar *script;
                 script = g_strdup_printf("%s(%d, `%s`);\ndelete %s;", aer1->cb, return_value, output, aer1->cb);
-                if (verbose)
-                {
-                    fprintf(stdout, "SCRIPT:\n%s\n", script);
-                }
                 if (aer1->cb)
                 {
                     pthread_mutex_lock(&js_mtx);
+                if (verbose)
+                {
                     printf("js_mutex locked\n");
+                    fprintf(stdout, "SCRIPT:\n%s\n", script);
+                }    
                     webkit_web_view_run_javascript(web_view, script, NULL, NULL, NULL);
                     pthread_mutex_unlock(&js_mtx);
+                if (verbose)
+                {
                     printf("js_mutex unlocked\n");
+                }
                 }
                 g_free(script);
             }
