@@ -4,7 +4,6 @@ static pthread_mutex_t aerlist_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t js_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 GtkWidget *window;
-bool inhibited = false;
 bool verbose = false;
 bool debug = false;
 int NUM_OF_THREADS = 10;
@@ -20,7 +19,7 @@ char *read_file_until_end(FILE *fp)
     output = (char *)malloc(BSIZE);
     if (!output)
     {
-        fprintf(stderr, "\nMemory Allocation Error: read_until_end\n");
+        fprintf(stderr, "\nMemory Allocation Error: read_file_until_end\n");
         return NULL;
     }
     else
@@ -28,20 +27,20 @@ char *read_file_until_end(FILE *fp)
         rlen = fread(output + len, 1, BSIZE, fp);
         while (rlen == BSIZE)
         {
-            len += rlen;
+            len += BSIZE;
             if (verbose)
             {
-                fprintf(stderr, "REALLOC(len: %lu, rlen: %lu)\n", len, rlen);
+                fprintf(stderr, "REALLOC(len: %lu, rlen: %lu)\n", len, BSIZE);
             }
             output = (char *)realloc(output, len + BSIZE);
             if (!output)
             {
-                fprintf(stderr, "\nMemory Allocation Error\n");
-                exit(1);
+                fprintf(stderr, "\nMemory Allocation Error in Thread: %ld\n", pthread_self());
+                return NULL;
             }
             rlen = fread(output + len, 1, BSIZE, fp);
         }
-        *(output + len + rlen + 1) = 0;
+        *(output + len + rlen) = 0;
     }
     return output;
 }
@@ -81,64 +80,61 @@ void on_quit()
 
 void *execute()
 {
-    while (!inhibited)
+    while (1)
     {
-        AER *aer1 = 0;
         pthread_mutex_lock(&aerlist_mtx);
-        aer1 = rootObject->next;
-        if(aer1) {
+        AER *aer1 = rootObject->next;
+        if (aer1)
+        {
             rootObject->next = aer1->next;
         }
         pthread_mutex_unlock(&aerlist_mtx);
-        if (verbose)
+        if (aer1)
         {
-            if (aer1)
+            if (verbose)
             {
                 printf("THREAD: %ld\nCOMMAND: %s\nCALLBACK: %s\n", pthread_self(), aer1->cmd, aer1->cb);
             }
-            else
-            {
-                continue;
-            }
+        }
+        else
+        {
+            continue;
         }
         FILE *fp;
         char *output;
-        unsigned int return_value;
+        int return_value;
         fp = popen(aer1->cmd, "r");
         if (!fp || fp < 0)
         {
             fprintf(stderr, "Error executing '%s' error no: %d\n", aer1->cmd, errno);
+            return_value = -1;
+            output = NULL;
         }
         else
         {
             output = read_file_until_end(fp);
             return_value = pclose(fp);
-            if (strlen(aer1->cb))
-            {
-                gchar *script;
-                script = g_strdup_printf("%s(%d, `%s`);\ndelete %s;", aer1->cb, return_value, output, aer1->cb);
-                if (aer1->cb)
-                {
-                    pthread_mutex_lock(&js_mtx);
-                if (verbose)
-                {
-                    printf("js_mutex locked\n");
-                    fprintf(stdout, "SCRIPT:\n%s\n", script);
-                }    
-                    webkit_web_view_run_javascript(web_view, script, NULL, NULL, NULL);
-                    pthread_mutex_unlock(&js_mtx);
-                if (verbose)
-                {
-                    printf("js_mutex unlocked\n");
-                }
-                }
-                g_free(script);
-            }
-            free(output);
-            free(aer1->cmd);
-            free(aer1->cb);
-            free(aer1);
         }
+        if (strlen(aer1->cb))
+        {
+            gchar *script;
+            script = g_strdup_printf("%s(%d, `%s`);\ndelete %s;", aer1->cb, return_value, output, aer1->cb);
+            if (aer1->cb)
+            {
+                pthread_mutex_lock(&js_mtx);
+                if (verbose)
+                {
+                    fprintf(stdout, "SCRIPT:\n%s\n", script);
+                }
+                webkit_web_view_run_javascript(web_view, script, NULL, NULL, NULL);
+                pthread_mutex_unlock(&js_mtx);
+            }
+            g_free(script);
+        }
+        free(output);
+        free(aer1->cmd);
+        free(aer1->cb);
+        free(aer1);
     }
     return 0;
 }
@@ -177,17 +173,14 @@ gboolean execute_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpoint
         req->cmd = cmd;
         req->cb = cb;
         req->next = 0;
-        if (!inhibited)
+        pthread_mutex_lock(&aerlist_mtx);
+        AER *tmp = rootObject;
+        while (tmp && tmp->next)
         {
-            pthread_mutex_lock(&aerlist_mtx);
-            AER *tmp = rootObject;
-            while (tmp && tmp->next)
-            {
-                tmp = tmp->next;
-            }
-            tmp->next = req;
-            pthread_mutex_unlock(&aerlist_mtx);
+            tmp = tmp->next;
         }
+        tmp->next = req;
+        pthread_mutex_unlock(&aerlist_mtx);
     }
     return true;
 }
@@ -303,9 +296,8 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
 
 int main(int argc, char *argv[], char *env[])
 {
-
     int opt;
-    while ((opt = getopt(argc, argv, ":div?")) != -1)
+    while ((opt = getopt(argc, argv, ":dit:v?")) != -1)
     {
         switch (opt)
         {
@@ -313,13 +305,15 @@ int main(int argc, char *argv[], char *env[])
             debug = true;
             break;
         case 'i':
-            inhibited = true;
+            NUM_OF_THREADS = 0;
             break;
+        case 't':
+            NUM_OF_THREADS = atoi(optarg);
         case 'v':
             verbose = true;
             break;
         case '?':
-            fprintf(stdout, "fe\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-v be verbose\n-? show help\n");
+            fprintf(stdout, "fe\tDeveloped by Michael Heeren 2021\n-d show debugger\n-i inhibit execution\n-t <count> number of threads\n-v be verbose\n-? show help\n");
             exit(0);
             break;
         }
@@ -375,7 +369,10 @@ int main(int argc, char *argv[], char *env[])
             fprintf(stderr, "No permission to set the scheduling policy and parameters specified in thread attribute.\n");
             break;
         default:
-            fprintf(stderr, "Thread Created\n");
+            if (verbose)
+            {
+                fprintf(stderr, "Thread Created\n");
+            }
             break;
         }
     }
