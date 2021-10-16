@@ -45,32 +45,6 @@ char *read_file_until_end(FILE *fp)
     return output;
 }
 
-int save_to_file(WebKitScriptDialog *dialog, gpointer user_data)
-{
-    char *data;
-    const char *fn;
-    fn = webkit_script_dialog_get_message(dialog);
-    data = strchr(fn, '=');
-    *data = 0;
-    data++;
-    if (!(strlen(fn) == 0 || strlen(data) == 0))
-    {
-        FILE *fp;
-        fp = fopen(fn, "w");
-        if (!fp)
-        {
-            if (verbose)
-            {
-                fprintf(stderr, "\nError opening %s\n", fn);
-            }
-            return 1;
-        }
-        fputs(data, fp);
-        fclose(fp);
-    }
-    return true;
-}
-
 void on_quit()
 {
     pthread_mutex_destroy(&aerlist_mtx);
@@ -286,7 +260,6 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
         return gtkreq_mon(web_view, dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_PROMPT:
-        return save_to_file(dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM:
         break;
@@ -309,6 +282,7 @@ int main(int argc, char *argv[], char *env[])
             break;
         case 't':
             NUM_OF_THREADS = atoi(optarg);
+            break;
         case 'v':
             verbose = true;
             break;
