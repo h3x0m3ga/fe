@@ -1,7 +1,9 @@
+# fe
+
+Frontend is a Webkit project to combine web technologies with the shell. Make front ends for command line programs. Use HTML/CSS/JAVASCRIPT to build GUIs. Very lightweight, versatile.
+
 #requires libwebkit2gtk-4.0-dev
 # requires cmake
-# fe
-Frontend is a Webkit project to combine web technologies with the shell. Make front ends for command line programs. Use HTML/CSS/JAVASCRIPT to build GUIs. Very lightweight, versatile.
 
 Commandline Flags:
   -d            debug, start the Webkit web inspector with fe.
