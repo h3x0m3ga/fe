@@ -46,6 +46,38 @@ char *read_file_until_end(FILE *fp)
     return output;
 }
 
+gboolean save_to_file_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointer user_data)
+{
+    const char *uddta;
+    char *ptr, *fn, *dta;
+    int fnlen, dtalen;
+    uddta = webkit_script_dialog_get_message(dialog);
+    ptr = strchr(uddta, ' ');
+    if (!ptr)
+    {
+        return 1;
+    }
+    ptr++;
+    if (sscanf(uddta, "%d,%d", &fnlen, &dtalen) != 2)
+    {
+        fprintf(stderr, "Parsing Error: incorrect arguments: %s", uddta);
+        return false;
+    }
+    fn = (char *)malloc(fnlen + 1);
+    dta = (char *)malloc(dtalen + 1);
+    if (fn && dta)
+    {
+        strncpy(fn, ptr, fnlen);
+        strncpy(dta, ptr + fnlen, dtalen);
+        fn[fnlen] = 0;
+        dta[dtalen] = 0;
+        FILE *fp = fopen(fn, "w+");
+        fputs(dta, fp);
+        fclose(fp);
+    }
+    return TRUE;
+}
+
 void on_quit()
 {
     pthread_mutex_destroy(&aerlist_mtx);
@@ -265,6 +297,7 @@ gboolean dialog_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
         return gtkreq_mon(web_view, dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_PROMPT:
+        return save_to_file_mon(web_view, dialog, user_data);
         break;
     case WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM:
         break;
@@ -304,8 +337,6 @@ int main(int argc, char *argv[], char *env[])
     GtkBuilder *builder;
     GtkWidget *w_webkit_webview;
     WebKitUserContentManager *manager;
-    // move dev to global context as to allow calling of the dev tools from script
-    //WebKitWebInspector *dev;
     WebKitUserScript *script;
     gchar *scriptsrc = g_strdup_printf("%s", spark_js);
     script = webkit_user_script_new(
