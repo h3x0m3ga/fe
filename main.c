@@ -11,6 +11,7 @@ size_t BSIZE = 2048;
 AER *rootObject;
 pthread_t *wrkrthrd;
 WebKitWebView *web_view;
+WebKitWebInspector *dev;
 
 char *read_file_until_end(FILE *fp)
 {
@@ -173,6 +174,10 @@ gboolean gtkreq_mon(WebKitWebView *web_view, WebKitScriptDialog *dialog, gpointe
         {
             fprintf(stdout, "Setting GTK parameter: \"%s\" to %s\n", param, val);
         }
+        if(!strcmp("debugger",param)) {
+            webkit_web_inspector_show(dev);
+            return true;
+        }
         if (!strcmp("title", param))
         {
             gtk_window_set_title(GTK_WINDOW(window), val);
@@ -299,7 +304,8 @@ int main(int argc, char *argv[], char *env[])
     GtkBuilder *builder;
     GtkWidget *w_webkit_webview;
     WebKitUserContentManager *manager;
-    WebKitWebInspector *dev;
+    // move dev to global context as to allow calling of the dev tools from script
+    //WebKitWebInspector *dev;
     WebKitUserScript *script;
     gchar *scriptsrc = g_strdup_printf("%s", spark_js);
     script = webkit_user_script_new(
@@ -323,9 +329,9 @@ int main(int argc, char *argv[], char *env[])
     webkit_user_content_manager_add_script(manager, script);
     gtk_builder_connect_signals(builder, w_webkit_webview);
     webkit_web_view_load_html(web_view, html, "file:///");
+    dev = webkit_web_view_get_inspector(web_view);
     if (debug)
     {
-        dev = webkit_web_view_get_inspector(web_view);
         webkit_web_inspector_show(dev);
     }
     for (int i = 0; i < NUM_OF_THREADS; i++)
