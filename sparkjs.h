@@ -7,10 +7,8 @@ const char spark_js[] = "(function () {\
      let savetofile = prompt;\
      alert = prompt = confirm = undefined;\
      window.bcblist = {};\
-     window.save_to_file = function save_to_file(atad,rescode,fn) {\
-      if(rescode <= 0 && typeof fn == \"string\" && fn.length > 0) {\
-         savetofile(`${fn.replace(/\\n/g, \"\")}=${atad}`);\
-      }\
+     window.save_to_file = function save_to_file(fn, data) {\
+      savetofile(`${fn.length},${data.length} ${fn}${data}`);\
       return true;\
      };\
      window.execute = function execute(cmd, cb) {\
