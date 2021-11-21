@@ -26,6 +26,9 @@ const char spark_js[] = "(function () {\
       }\
       return true;\
      };\
+     window.gtk_window_show_debugger=function set_debugger() {\
+        return gtksetstr(`debugger=true`);\
+     };\
      window.gtk_window_set_title=function set_title(value) {\
         return gtksetstr(`title=${value}`);\
      };\
